@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image" href="/src/assets/admin.jpg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Bank App - Naseem Khan</title>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+  
+  <!-- External Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/ua-parser-js@0.7.28/dist/ua-parser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/heatmap.js@2.0.5"></script>
+
+  <script>
+    // Initialize UA Parser and retrieve device details
+    const parser = new UAParser();
+    const result = parser.getResult();
+    const browser = result.browser.name || "Unknown Browser";
+    const os = result.os.name || "Unknown OS";
+    let device = result.device.model || "Laptop/PC";
+
+    if (result.device.type) {
+      device = {
+        desktop: "Laptop/PC",
+        mobile: "Mobile",
+        tablet: "Tablet",
+      }[result.device.type] || "Laptop/PC";
+    }
+
+    // Generate a unique session ID that persists across pages
+    const sessionId = (() => {
+      let sessionId = localStorage.getItem('sessionId');
+      if (!sessionId) {
+        sessionId = `sess-${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem('sessionId', sessionId);
+      }
+      console.log(`Generated sessionId: ${sessionId}`); // Log the generated session ID
+      return sessionId;
+    })();
+
+    // Create heatmap instance
+    const heatmapContainer = Object.assign(document.createElement('div'), { id: 'heatmap-container' });
+    document.body.prepend(heatmapContainer);
+    const heatmap = h337.create({
+      container: heatmapContainer,
+      radius: 40,
+      maxOpacity: 0.6,
+      minOpacity: 0.2,
+      blur: 0.75,
+      gradient: {
+        0.2: "blue",
+        0.5: "yellow",
+        1.0: "red",
+      },
+    });
+
+    const heatmapDataPoints = {};
+    let totalRageClicks = 0, totalDeadClicks = 0, totalQuickClicks = 0;
+    const clickTrackingData = {};
+
+    // Add or update heatmap points
+    const addOrUpdateHeatmapPoint = (x, y) => {
+      const key = `${Math.round(x)},${Math.round(y)}`;
+      heatmapDataPoints[key] = heatmapDataPoints[key] || { x: Math.round(x), y: Math.round(y), value: 0 };
+      heatmapDataPoints[key].value++;
+
+      heatmap.setData({
+        max: 10,
+        data: Object.values(heatmapDataPoints),
+      });
+    };
+
+    // Track click performance
+    const trackClickPerformance = (x, y) => {
+      const key = `${Math.round(x)},${Math.round(y)}`;
+      const currentTime = Date.now();
+
+      const clickData = clickTrackingData[key] = clickTrackingData[key] || {
+        clicks: 0,
+        lastClickTime: 0,
+        clickTimes: [],
+        rageClicks: 0,
+        deadClicks: 0,
+        quickClicks: 0,
+      };
+
+      const timeSinceLastClick = currentTime - clickData.lastClickTime;
+      if (timeSinceLastClick < 500) {
+        clickData.rageClicks++;
+        totalRageClicks++;
+      }
+
+      clickData.clickTimes.push(currentTime);
+      clickData.clickTimes = clickData.clickTimes.filter(time => currentTime - time <= 2000);
+      if (clickData.clickTimes.length > 2) {
+        clickData.quickClicks++;
+        totalQuickClicks++;
+      }
+
+      if (!isClickOnActionableArea(x, y)) {
+        clickData.deadClicks++;
+        totalDeadClicks++;
+      }
+
+      clickData.lastClickTime = currentTime;
+      clickData.clicks++;
+      addOrUpdateHeatmapPoint(x, y);
+    };
+
+    // Check if a click is in an actionable area
+    const isClickOnActionableArea = (x, y) => {
+      const { innerWidth, innerHeight } = window;
+      const clickableArea = {
+        x: innerWidth / 3,
+        y: innerHeight / 3,
+        width: innerWidth / 3,
+        height: innerHeight / 3,
+      };
+      return (
+        x > clickableArea.x && x < clickableArea.x + clickableArea.width &&
+        y > clickableArea.y && y < clickableArea.y + clickableArea.height
+      );
+    };
+
+    // Updated click event listener to use pageX and pageY
+    document.addEventListener('click', (event) => {
+      const x = event.pageX; // Absolute X coordinate relative to the document
+      const y = event.pageY; // Absolute Y coordinate relative to the document
+
+      console.log(`Click event at (${x}, ${y})`); // Log click coordinates
+      trackClickPerformance(x, y);
+      sendDataToBackend('click', x, y);
+    });
+
+    // Send data to backend
+    const sendDataToBackend = (eventType, x, y) => {
+      console.log(`Sending data to backend - EventType: ${eventType}, Coordinates: (${x}, ${y})`); // Log the data being sent
+      fetch("http://localhost:5000/api/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          x, // Absolute X coordinate
+          y, // Absolute Y coordinate
+          eventType,
+          timestamp: new Date().toISOString(),
+          os,
+          device,
+          browser,
+          heatmapData: Object.values(heatmapDataPoints).map(({ x, y, value }) => ({ x, y, intensity: value })),
+        }),
+      })
+        .then(response => response.json())
+        .then(data => console.log("Data sent successfully:", data)) // Log backend response
+        .catch(error => console.error("Error sending data:", error));
+    };
+  </script>
+</body>
+
+</html>
